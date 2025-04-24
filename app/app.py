@@ -306,7 +306,19 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
                 presentation_md = cached_data.get("presentation_md")
                 slides_data = cached_data.get("slides_data")
 
+                if not presentation_md:
+                    logger.warning(
+                        f"Cache for {url} missing 'presentation_md'. Regenerating."
+                    )
+                if not slides_data:
+                    logger.warning(
+                        f"Cache for {url} missing 'slides_data'. Regenerating."
+                    )
+
                 if presentation_md and slides_data:
+                    logger.info(
+                        f"Found complete cache entry for {url} with {len(slides_data)} slides."
+                    )
                     temp_dir = tempfile.mkdtemp()
                     md_path = os.path.join(temp_dir, "presentation.md")
                     try:
@@ -375,8 +387,11 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
                         logger.error(f"Error writing cached markdown: {e}")
                         if os.path.exists(temp_dir):
                             shutil.rmtree(temp_dir)
+                        # If writing cache fails, raise to trigger full regeneration flow
+                        raise gr.Error(f"Failed to write cached markdown: {e}")
                 else:
-                    logger.warning(f"Cache entry for {url} incomplete. Regenerating.")
+                    # This case is now covered by the more specific logging above
+                    pass  # Continue to regeneration
             # --- Cache Miss or Failed Cache Load ---
             logger.info(f"Cache miss for URL: {url}. Proceeding with generation.")
             progress(0.1, desc="Fetching webpage content...")
@@ -1131,7 +1146,8 @@ with gr.Blocks(
                     )
                 with gr.Column(scale=4):
                     gr.Markdown(
-                        "### Instructions\n1. Finalize notes below.\n2. Click 'Generate Audio'.\n3. Regenerate if needed.\n4. Go to next tab.")
+                        "### Instructions\n1. Finalize notes below.\n2. Click 'Generate Audio'.\n3. Regenerate if needed.\n4. Go to next tab."
+                    )
 
         # Tab 4: Generate Video
         with gr.TabItem("4. Create Video", id=3):
