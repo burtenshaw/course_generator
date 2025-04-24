@@ -1102,7 +1102,7 @@ with gr.Blocks(
                     )
                 with gr.Column(scale=4):
                     gr.Markdown(
-                        "### Instructions\\n1. Enter URL & click 'Fetch & Generate'.\\n2. Editor appears below.\\n3. Go to next tab."
+                        "### Instructions\n1. Enter URL & click 'Fetch & Generate'.\n2. Editor appears below.\n3. Go to next tab."
                     )
 
         # Tab 2: Build Slides
@@ -1118,7 +1118,7 @@ with gr.Blocks(
                     )
                 with gr.Column(scale=4):
                     gr.Markdown(
-                        "### Instructions\\n1. Edit content/notes below.\\n2. Click 'Build Slides'. Images appear.\\n3. Download PDF from sidebar.\\n4. Go to next tab."
+                        "### Instructions\n1. Edit content/notes below.\n2. Click 'Build Slides'. Images appear.\n3. Download PDF from sidebar.\n4. Go to next tab."
                     )
 
         # Tab 3: Generate Audio
@@ -1131,8 +1131,7 @@ with gr.Blocks(
                     )
                 with gr.Column(scale=4):
                     gr.Markdown(
-                        "### Instructions\\n1. Finalize notes below.\\n2. Click 'Generate Audio'.\\n3. Regenerate if needed.\\n4. Go to next tab."
-                    )
+                        "### Instructions\n1. Finalize notes below.\n2. Click 'Generate Audio'.\n3. Regenerate if needed.\n4. Go to next tab.")
 
         # Tab 4: Generate Video
         with gr.TabItem("4. Create Video", id=3):
@@ -1144,14 +1143,26 @@ with gr.Blocks(
                     )
                 with gr.Column(scale=4):
                     gr.Markdown(
-                        "### Instructions\\n1. Click 'Create Video'.\\n2. Video appears below."
+                        "### Instructions\n1. Click 'Create Video'.\n2. Video appears below.".replace(
+                            "\n", "\n"
+                        )  # Ensure newlines are rendered
                     )
                     video_output = gr.Video(label="Final Video", visible=False)
 
-    # Define the shared editor structure once, AFTER tabs
+    # --- Status Textbox (Moved BEFORE editor_column) ---
+    with gr.Row():
+        status_textbox = gr.Textbox(
+            label="Status",
+            value="Enter a URL and click 'Fetch & Generate' to start.",
+            interactive=False,
+            lines=1,
+            max_lines=1,
+        )
+
+    # Define the shared editor structure once, AFTER tabs and status box
     slide_editors_group = []
     with gr.Column(visible=False) as editor_column:  # Initially hidden
-        gr.Markdown("--- \\n## Edit Slides & Notes")
+        gr.Markdown("--- \n## Edit Slides & Notes")
         gr.Markdown("_(PDF uses content & notes, Audio uses notes only)_")
         for i in range(MAX_SLIDES):
             with gr.Accordion(f"Slide {i + 1}", open=(i == 0), visible=False) as acc:
@@ -1209,16 +1220,6 @@ with gr.Blocks(
                     show_progress="hidden",
                 )
 
-    # --- Status Textbox (Added) ---
-    with gr.Row():
-        status_textbox = gr.Textbox(
-            label="Status",
-            value="Enter a URL and click 'Fetch & Generate' to start.",
-            interactive=False,
-            lines=1,
-            max_lines=1,
-        )
-
     # --- Component Lists for Updates ---
     all_editor_components = [comp for group in slide_editors_group for comp in group]
     all_code_editors = [group[1] for group in slide_editors_group]
@@ -1256,7 +1257,8 @@ with gr.Blocks(
                 if i < MAX_SLIDES
                 for upd in [
                     gr.update(
-                        label=f"Slide {i + 1}: {slide['content'][:25]}...",
+                        # Get cleaned first line for title, then use in f-string
+                        label=f"Slide {i + 1}: {(slide['content'].splitlines()[0] if slide['content'] else '').strip()[:30]}...",
                         visible=True,
                         open=(i == 0),
                     ),  # Accordion
