@@ -12,3 +12,9 @@ pinned: false
 # page-to-video
 
 A repo for generating educational presentation videos from web pages.
+
+Uses:
+
+- inference providers
+- Cohere command a
+- Fal
