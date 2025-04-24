@@ -757,6 +757,61 @@ def cleanup_session(temp_dir):
     return "No valid temporary directory found to clean."
 
 
+# --- Dependency Check and Installation --- (Added)
+
+
+def check_and_install_npm_dependency(command_name, package_name, install_instructions):
+    """Checks if a command exists, tries to install via npm if not."""
+    if shutil.which(command_name):
+        logger.info(f"Command '{command_name}' found.")
+        return True
+    else:
+        logger.warning(
+            f"Command '{command_name}' not found. Attempting to install '{package_name}' globally via npm..."
+        )
+        npm_command = ["npm", "install", "-g", package_name]
+        try:
+            result = subprocess.run(
+                npm_command, check=True, capture_output=True, text=True, timeout=300
+            )
+            logger.info(f"Successfully installed '{package_name}'.")
+            logger.debug(f"npm stdout:\n{result.stdout}")
+            logger.debug(f"npm stderr:\n{result.stderr}")
+            # Verify again after install attempt
+            if shutil.which(command_name):
+                logger.info(f"Command '{command_name}' is now available.")
+                return True
+            else:
+                logger.error(
+                    f"Installation of '{package_name}' reported success, but command '{command_name}' still not found. Check npm logs and PATH."
+                )
+                return False
+        except FileNotFoundError:
+            logger.error(
+                f"`npm` command not found. Cannot install '{package_name}'. {install_instructions}"
+            )
+            return False
+        except subprocess.CalledProcessError as e:
+            logger.error(
+                f"Failed to install '{package_name}' (return code {e.returncode})."
+            )
+            logger.error(f"npm stdout:\n{e.stdout}")
+            logger.error(f"npm stderr:\n{e.stderr}")
+            logger.error(
+                "Installation might require administrator privileges (e.g., run with 'sudo')."
+            )
+            return False
+        except subprocess.TimeoutExpired:
+            logger.error(f"Installation of '{package_name}' timed out.")
+            return False
+        except Exception as e:
+            logger.error(
+                f"An unexpected error occurred during '{package_name}' installation: {e}",
+                exc_info=True,
+            )
+            return False
+
+
 # --- Gradio Interface ---
 
 # Load custom CSS
@@ -1102,4 +1157,28 @@ with gr.Blocks(
 if __name__ == "__main__":
     os.makedirs(CACHE_DIR, exist_ok=True)
     os.makedirs(URL_CACHE_DIR, exist_ok=True)
+
+    # --- Check/Install Dependencies --- (Added)
+    logger.info("Checking for external dependencies...")
+    backslide_ok = check_and_install_npm_dependency(
+        "bs",
+        "backslide",
+        "Please install Node.js/npm (https://nodejs.org/) and then run 'npm install -g backslide'",
+    )
+    decktape_ok = check_and_install_npm_dependency(
+        "decktape",
+        "decktape",
+        "Please install Node.js/npm (https://nodejs.org/) and then run 'npm install -g decktape'",
+    )
+
+    if not backslide_ok:
+        gr.Warning(
+            "Backslide (bs) command check/install failed. PDF generation might fail. Check logs."
+        )
+    if not decktape_ok:
+        gr.Warning(
+            "Decktape command check/install failed. PDF generation might fail. Check logs."
+        )
+    # --- End Dependency Check ---
+
     demo.queue().launch(debug=True)
