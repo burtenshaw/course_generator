@@ -278,16 +278,22 @@ def load_css(css_filename="style.scss"):
 # --- Gradio Workflow Functions ---
 
 
-def step1_fetch_and_generate_presentation(
-    url, status_textbox, progress=gr.Progress(track_tqdm=True)
-):
+def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=True)):
     """Fetches content, generates presentation markdown, prepares editor, and copies template. Uses caching based on URL."""
     if not url:
         raise gr.Error("Please enter a URL.")
     logger.info(f"Step 1: Fetching & Generating for {url}")
 
     status_update = f"Starting Step 1: Fetching content from {url}..."
-    yield status_update
+    yield (
+        gr.update(value=status_update),
+        None,
+        None,
+        [],
+        gr.update(),
+        gr.update(),
+        gr.update(),
+    )
 
     # --- Cache Check ---
     try:
@@ -340,7 +346,15 @@ def step1_fetch_and_generate_presentation(
                         status_update = (
                             "Loaded presentation from cache. Preparing editor..."
                         )
-                        yield status_update
+                        yield (
+                            gr.update(value=status_update),
+                            None,
+                            None,
+                            [],
+                            gr.update(),
+                            gr.update(),
+                            gr.update(),
+                        )
                         logger.info(f"Using cached data for {len(slides_data)} slides.")
                         # Final yield must match outputs list
                         yield (
@@ -370,14 +384,30 @@ def step1_fetch_and_generate_presentation(
                 raise gr.Error("LLM Client not initialized. Check API Key.")
 
             status_update = "Fetching webpage content..."
-            yield status_update
+            yield (
+                gr.update(value=status_update),
+                None,
+                None,
+                [],
+                gr.update(),
+                gr.update(),
+                gr.update(),
+            )
             web_content = fetch_webpage_content(url)
             if not web_content:
                 raise gr.Error("Failed to fetch or parse content from the URL.")
 
             progress(0.3, desc="Generating presentation with LLM...")
             status_update = "Generating presentation with LLM..."
-            yield status_update
+            yield (
+                gr.update(value=status_update),
+                None,
+                None,
+                [],
+                gr.update(),
+                gr.update(),
+                gr.update(),
+            )
             try:
                 presentation_md = generate_presentation_with_llm(
                     hf_client, LLM_MODEL, PRESENTATION_PROMPT, web_content, url
@@ -402,7 +432,15 @@ def step1_fetch_and_generate_presentation(
 
             progress(0.7, desc="Parsing presentation slides...")
             status_update = "Parsing presentation slides..."
-            yield status_update
+            yield (
+                gr.update(value=status_update),
+                None,
+                None,
+                [],
+                gr.update(),
+                gr.update(),
+                gr.update(),
+            )
             slides_data = parse_presentation_markdown(presentation_md)
             if not slides_data:
                 logger.error("Parsing markdown resulted in zero slides.")
@@ -446,7 +484,15 @@ def step1_fetch_and_generate_presentation(
 
             progress(0.9, desc="Preparing editor...")
             status_update = "Generated presentation. Preparing editor..."
-            yield status_update
+            yield (
+                gr.update(value=status_update),
+                None,
+                None,
+                [],
+                gr.update(),
+                gr.update(),
+                gr.update(),
+            )
             logger.info(f"Prepared data for {len(slides_data)} slides.")
 
             # Final yield must match outputs list
@@ -463,7 +509,15 @@ def step1_fetch_and_generate_presentation(
     except Exception as e:
         logger.error(f"Error in step 1 (fetch/generate): {e}", exc_info=True)
         status_update = f"Error during presentation setup: {e}"
-        yield status_update
+        yield (
+            gr.update(value=status_update),
+            None,
+            None,
+            [],
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
         # Yield a final tuple matching outputs, indicating error state if possible
         yield (
             gr.update(value=status_update),
@@ -482,7 +536,6 @@ def step2_build_slides(
     state_temp_dir,
     state_md_path,
     state_slides_data,
-    status_textbox,
     *editors,
     progress=gr.Progress(track_tqdm=True),
 ):
@@ -491,7 +544,14 @@ def step2_build_slides(
         raise gr.Error("Session state missing.")
     logger.info("Step 2: Building Slides (PDF + Images)")
     status_update = "Starting Step 2: Building slides..."
-    yield status_update
+    yield (
+        gr.update(value=status_update),
+        None,
+        [],
+        gr.update(),
+        gr.update(),
+        gr.update(),
+    )
 
     num_slides = len(state_slides_data)
     MAX_SLIDES = 20
@@ -505,7 +565,14 @@ def step2_build_slides(
 
     progress(0.1, desc="Saving edited markdown...")
     status_update = "Saving edited markdown..."
-    yield status_update
+    yield (
+        gr.update(value=status_update),
+        None,
+        [],
+        gr.update(),
+        gr.update(),
+        gr.update(),
+    )
     updated_slides = []
     for i in range(num_slides):
         updated_slides.append(
@@ -518,7 +585,14 @@ def step2_build_slides(
         logger.info(f"Saved edited markdown: {state_md_path}")
     except IOError as e:
         status_update = f"Failed to save markdown: {e}"
-        yield status_update
+        yield (
+            gr.update(value=status_update),
+            None,
+            [],
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
         # Final yield must match outputs
         yield (
             gr.update(value=status_update),
@@ -527,12 +601,19 @@ def step2_build_slides(
             gr.update(),
             gr.update(visible=True),
             gr.update(),
-        )  # Keep build button visible
+        )
         raise gr.Error(f"Failed to save markdown: {e}")
 
     progress(0.3, desc="Generating PDF...")
     status_update = "Generating PDF..."
-    yield status_update
+    yield (
+        gr.update(value=status_update),
+        None,
+        [],
+        gr.update(),
+        gr.update(),
+        gr.update(),
+    )
     pdf_output_path = os.path.join(state_temp_dir, "presentation.pdf")
     try:
         generated_pdf_path = generate_pdf_from_markdown(state_md_path, pdf_output_path)
@@ -540,7 +621,14 @@ def step2_build_slides(
             raise gr.Error("PDF generation failed (check logs).")
     except gr.Error as e:
         status_update = f"PDF Generation Error: {e}"
-        yield status_update
+        yield (
+            gr.update(value=status_update),
+            None,
+            [],
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
         # Final yield must match outputs
         yield (
             gr.update(value=status_update),
@@ -549,11 +637,18 @@ def step2_build_slides(
             gr.update(),
             gr.update(visible=True),
             gr.update(),
-        )  # Keep build button visible
+        )
         raise e
     except Exception as e:
         status_update = f"Unexpected PDF Error: {e}"
-        yield status_update
+        yield (
+            gr.update(value=status_update),
+            None,
+            [],
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
         # Final yield must match outputs
         yield (
             gr.update(value=status_update),
@@ -562,12 +657,19 @@ def step2_build_slides(
             gr.update(),
             gr.update(visible=True),
             gr.update(),
-        )  # Keep build button visible
+        )
         raise gr.Error(f"Unexpected error generating PDF: {e}")
 
     progress(0.7, desc="Converting PDF to images...")
     status_update = "Converting PDF to images..."
-    yield status_update
+    yield (
+        gr.update(value=status_update),
+        generated_pdf_path,
+        [],
+        gr.update(),
+        gr.update(),
+        gr.update(),
+    )
     pdf_images = []
     try:
         pdf_images = convert_pdf_to_images(
@@ -584,7 +686,14 @@ def step2_build_slides(
     except Exception as e:
         logger.error(f"Error converting PDF to images: {e}", exc_info=True)
         status_update = f"Failed to convert PDF to images: {e}"
-        yield status_update
+        yield (
+            gr.update(value=status_update),
+            generated_pdf_path,
+            [],
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
         # Final yield must match outputs
         yield (
             gr.update(value=status_update),
@@ -593,7 +702,7 @@ def step2_build_slides(
             gr.update(),
             gr.update(visible=True),
             gr.update(value=generated_pdf_path, visible=True),
-        )  # Keep build button visible
+        )
         # Proceed without images? Or raise error? Let's raise.
         raise gr.Error(f"Failed to convert PDF to images: {e}")
 
@@ -617,13 +726,11 @@ def step3_generate_audio(*args, progress=gr.Progress(track_tqdm=True)):
     # args[0]: state_temp_dir
     # args[1]: state_md_path
     # args[2]: original_slides_data
-    # args[3]: status_textbox <- Now passed explicitly
-    # args[4...]: editors
+    # args[3...]: editors
 
     state_temp_dir = args[0]
     state_md_path = args[1]
     original_slides_data = args[2]
-    status_textbox = args[3]
 
     # editors = args[3:] # Old slicing
     num_slides = len(original_slides_data)
@@ -632,10 +739,10 @@ def step3_generate_audio(*args, progress=gr.Progress(track_tqdm=True)):
         raise gr.Error("No slide data available. Please start over.")
 
     MAX_SLIDES = 20  # Ensure this matches UI definition
-    # --- Adjust indices based on adding status_textbox input ---
-    # Start editors from index 4 now
-    code_editors_start_index = 4
-    notes_textboxes_start_index = 4 + MAX_SLIDES
+    # --- Adjust indices based on removing status_textbox input ---
+    # Start editors from index 3 now
+    code_editors_start_index = 3
+    notes_textboxes_start_index = 3 + MAX_SLIDES
 
     # Slice the *actual* edited values based on num_slides
     edited_contents = args[
@@ -659,7 +766,9 @@ def step3_generate_audio(*args, progress=gr.Progress(track_tqdm=True)):
 
     logger.info(f"Processing {num_slides} slides for audio generation.")
     status_update = "Starting Step 3: Generating audio..."
-    yield status_update
+    yield (gr.update(value=status_update), None, gr.update(), gr.update()) + (
+        gr.update(),
+    ) * MAX_SLIDES * 2
 
     audio_dir = os.path.join(state_temp_dir, "audio")
     os.makedirs(audio_dir, exist_ok=True)
@@ -669,7 +778,9 @@ def step3_generate_audio(*args, progress=gr.Progress(track_tqdm=True)):
     # but ensures the audio matches the *latest* notes displayed.
     progress(0.1, desc="Saving latest notes...")
     status_update = "Saving latest notes..."
-    yield status_update
+    yield (gr.update(value=status_update), None, gr.update(), gr.update()) + (
+        gr.update(),
+    ) * MAX_SLIDES * 2
     updated_slides_data = []
     for i in range(num_slides):
         updated_slides_data.append(
@@ -689,7 +800,9 @@ def step3_generate_audio(*args, progress=gr.Progress(track_tqdm=True)):
         warning_msg = f"Warning: Could not save latest notes to markdown file: {e}"
         gr.Warning(warning_msg)
         status_update += f" ({warning_msg})"
-        yield status_update  # Yield the warning status string
+        yield (gr.update(value=status_update), None, gr.update(), gr.update()) + (
+            gr.update(),
+        ) * MAX_SLIDES * 2
         # Note: We continue processing audio even if saving markdown fails
         # If we need to stop and return final state, do it here:
         # yield (gr.update(value=status_update), state_audio_dir, gr.update(), gr.update(visible=True), *[gr.update()]*N, *[gr.update()]*N)
@@ -708,7 +821,9 @@ def step3_generate_audio(*args, progress=gr.Progress(track_tqdm=True)):
             desc=f"Audio slide {slide_num}/{num_slides}",
         )
         status_update = f"Generating audio for slide {slide_num}/{num_slides}..."
-        yield status_update
+        yield (gr.update(value=status_update), audio_dir, gr.update(), gr.update()) + (
+            gr.update(),
+        ) * MAX_SLIDES * 2
 
         output_file_path = Path(audio_dir) / f"{slide_num}.wav"
         if not note_text or not note_text.strip():
@@ -787,7 +902,6 @@ def step4_generate_video(
     state_temp_dir,
     state_audio_dir,
     state_pdf_path,  # Use PDF path from state
-    status_textbox,
     progress=gr.Progress(track_tqdm=True),
 ):
     """Generates the final video using PDF images and audio files."""
@@ -802,7 +916,7 @@ def step4_generate_video(
 
     video_output_path = os.path.join(state_temp_dir, "final_presentation.mp4")
     status_update = "Starting Step 4: Generating video..."
-    yield status_update
+    yield (gr.update(value=status_update), gr.update(), gr.update())
 
     progress(0.1, desc="Preparing video components...")
     pdf_images = []  # Initialize to ensure cleanup happens
@@ -819,7 +933,7 @@ def step4_generate_video(
         # Convert PDF to images
         progress(0.2, desc="Converting PDF to images...")
         status_update = "Converting PDF back to images for video..."
-        yield status_update
+        yield (gr.update(value=status_update), gr.update(), gr.update())
         pdf_images = convert_pdf_to_images(state_pdf_path, dpi=150)
         if not pdf_images:
             raise gr.Error(f"Failed to convert PDF ({state_pdf_path}) to images.")
@@ -831,12 +945,12 @@ def step4_generate_video(
             logger.warning(warning_msg)
             status_update += f" ({warning_msg})"
             # yield status_update # Old yield
-            yield status_update  # Yield the warning status string
+            yield (gr.update(value=status_update), gr.update(), gr.update())
 
         progress(0.5, desc="Creating individual video clips...")
         status_update = "Creating individual video clips..."
         # yield status_update # Old yield
-        yield status_update
+        yield (gr.update(value=status_update), gr.update(), gr.update())
         buffer_seconds = 1.0
         output_fps = 10
         video_clips = create_video_clips(
@@ -849,7 +963,7 @@ def step4_generate_video(
         progress(0.8, desc="Concatenating clips...")
         status_update = "Concatenating clips into final video..."
         # yield status_update # Old yield
-        yield status_update
+        yield (gr.update(value=status_update), gr.update(), gr.update())
         concatenate_clips(video_clips, video_output_path, output_fps)
 
         logger.info(f"Video concatenation complete: {video_output_path}")
@@ -857,7 +971,7 @@ def step4_generate_video(
         progress(0.95, desc="Cleaning up temp images...")
         status_update = "Cleaning up temporary image files..."
         # yield status_update # Old yield
-        yield status_update
+        yield (gr.update(value=status_update), gr.update(), gr.update())
         cleanup_temp_files(pdf_images)  # Pass the list of image paths
 
     except Exception as e:
@@ -865,13 +979,9 @@ def step4_generate_video(
             cleanup_temp_files(pdf_images)
         logger.error(f"Video generation failed: {e}", exc_info=True)
         status_update = f"Video generation failed: {e}"
-        yield status_update
+        yield (gr.update(value=status_update), gr.update(), gr.update())
         # Final yield must match outputs
-        yield (
-            gr.update(value=status_update),
-            gr.update(),
-            gr.update(visible=True),
-        )  # Keep button visible
+        yield (gr.update(value=status_update), gr.update(), gr.update(visible=True))
         raise gr.Error(f"Video generation failed: {e}")
 
     info_msg = f"Video generated: {os.path.basename(video_output_path)}"
@@ -1131,7 +1241,7 @@ with gr.Blocks(
     ]
     btn_fetch_generate.click(
         fn=step1_fetch_and_generate_presentation,
-        inputs=[input_url, status_textbox],
+        inputs=[input_url],
         outputs=step1_outputs,
         show_progress="full",
     ).then(
@@ -1171,7 +1281,7 @@ with gr.Blocks(
 
     # Step 2 Click Handler
     step2_inputs = (
-        [state_temp_dir, state_md_path, state_slides_data, status_textbox]
+        [state_temp_dir, state_md_path, state_slides_data]
         + all_code_editors
         + all_notes_textboxes
     )
@@ -1209,7 +1319,7 @@ with gr.Blocks(
 
     # Step 3 Click Handler
     step3_inputs = (
-        [state_temp_dir, state_md_path, state_slides_data, status_textbox]
+        [state_temp_dir, state_md_path, state_slides_data]
         + all_code_editors
         + all_notes_textboxes
     )
@@ -1239,7 +1349,7 @@ with gr.Blocks(
     )
 
     # Step 4 Click Handler
-    step4_inputs = [state_temp_dir, state_audio_dir, state_pdf_path, status_textbox]
+    step4_inputs = [state_temp_dir, state_audio_dir, state_pdf_path]
     step4_outputs = [
         status_textbox,  # Added status output
         video_output,  # Update video output in Tab 4
