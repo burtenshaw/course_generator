@@ -136,63 +136,124 @@ def reconstruct_presentation_markdown(slides_data):
 
 
 def generate_pdf_from_markdown(markdown_file_path, output_pdf_path):
-    """Generates a PDF from a Markdown file using bs pdf."""
-    logger.info(
-        f"Attempting PDF gen using bs pdf: {markdown_file_path} -> {output_pdf_path}"
-    )
+    """Generates a PDF from a Markdown file using bs export + decktape."""
+    logger.info(f"Attempting PDF gen: {markdown_file_path} -> {output_pdf_path}")
     working_dir = os.path.dirname(markdown_file_path)
     markdown_filename = os.path.basename(markdown_file_path)
-    # Ensure output directory exists (bs pdf might not create it)
-    Path(output_pdf_path).parent.mkdir(parents=True, exist_ok=True)
-
+    html_output_dir_name = "bs_html_output"
+    html_output_dir_abs = os.path.join(working_dir, html_output_dir_name)
+    expected_html_filename = os.path.splitext(markdown_filename)[0] + ".html"
+    generated_html_path_abs = os.path.join(html_output_dir_abs, expected_html_filename)
     pdf_gen_success = False
 
-    # ---- Run bs pdf ----
+    # ---- Step 1: Generate HTML using bs export ----
     try:
-        # Use the absolute path for the output file
-        pdf_command = ["bs", "pdf", markdown_filename, "-o", str(output_pdf_path)]
-        logger.info(f"Running: {' '.join(pdf_command)} in CWD: {working_dir}")
-        pdf_result = subprocess.run(
-            pdf_command,
+        Path(html_output_dir_abs).mkdir(parents=True, exist_ok=True)
+        export_command = ["bs", "export", markdown_filename, "-o", html_output_dir_name]
+        logger.info(f"Running: {' '.join(export_command)} in CWD: {working_dir}")
+        export_result = subprocess.run(
+            export_command,
             cwd=working_dir,
             capture_output=True,
             text=True,
             check=True,
-            timeout=180,  # Combined timeout (adjust as needed)
+            timeout=60,
         )
-        logger.info("bs pdf command executed successfully.")
-        logger.debug(f"bs pdf stdout:\n{pdf_result.stdout}")
-        logger.debug(f"bs pdf stderr:\n{pdf_result.stderr}")
+        logger.info("Backslide (bs export) OK.")
+        logger.debug(f"bs export stdout:\n{export_result.stdout}")
+        logger.debug(f"bs export stderr:\n{export_result.stderr}")
+
+        if not os.path.exists(generated_html_path_abs):
+            logger.error(f"Expected HTML not found: {generated_html_path_abs}")
+            try:
+                files_in_dir = os.listdir(html_output_dir_abs)
+                logger.error(f"Files in {html_output_dir_abs}: {files_in_dir}")
+            except FileNotFoundError:
+                logger.error(
+                    f"HTML output directory {html_output_dir_abs} not found after bs run."
+                )
+            raise FileNotFoundError(
+                f"Generated HTML not found: {generated_html_path_abs}"
+            )
+
+    except FileNotFoundError:
+        logger.error(
+            "`bs` command not found. Install backslide (`npm install -g backslide`)."
+        )
+        raise gr.Error("HTML generation tool (backslide/bs) not found.")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Backslide (bs export) failed (code {e.returncode}).")
+        logger.error(f"bs stderr:\n{e.stderr}")
+        raise gr.Error(f"Backslide HTML failed: {e.stderr[:500]}...")
+    except subprocess.TimeoutExpired:
+        logger.error("Backslide (bs export) timed out.")
+        raise gr.Error("HTML generation timed out (backslide).")
+    except Exception as e:
+        logger.error(f"Unexpected error during bs export: {e}", exc_info=True)
+        raise gr.Error(f"Unexpected error during HTML generation: {e}")
+
+    # ---- Step 2: Generate PDF from HTML using decktape ----
+    try:
+        Path(output_pdf_path).parent.mkdir(parents=True, exist_ok=True)
+        html_file_url = Path(generated_html_path_abs).as_uri()
+        decktape_command = [
+            "decktape",
+            "-p",
+            "1000",
+            "--chrome-arg=--allow-running-insecure-content",
+            "--chrome-arg=--disable-web-security",
+            "--chrome-arg=--no-sandbox",
+            html_file_url,
+            str(output_pdf_path),
+        ]
+        logger.info(f"Running PDF conversion: {' '.join(decktape_command)}")
+        decktape_result = subprocess.run(
+            decktape_command,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=120,
+        )
+        logger.info("Decktape command executed successfully.")
+        logger.debug(f"decktape stdout:\n{decktape_result.stdout}")
+        logger.debug(f"decktape stderr:\n{decktape_result.stderr}")
 
         if os.path.exists(output_pdf_path):
             logger.info(f"PDF generated successfully: {output_pdf_path}")
             pdf_gen_success = True
             return output_pdf_path
         else:
-            logger.error("bs pdf command finished but output PDF not found.")
-            raise gr.Error("bs pdf finished but failed to create the PDF file.")
+            logger.error("Decktape command finished but output PDF not found.")
+            raise gr.Error("Decktape finished, but the PDF file was not created.")
 
     except FileNotFoundError:
         logger.error(
-            "`bs` command not found. Install backslide (`npm install -g backslide`) "
-            "and ensure its dependencies (like decktape) are met."
+            "`decktape` command not found. Install decktape (`npm install -g decktape`)."
         )
-        raise gr.Error(
-            "PDF generation tool (backslide/bs) not found or not configured correctly."
-        )
+        raise gr.Error("PDF generation tool (decktape) not found.")
     except subprocess.CalledProcessError as e:
-        logger.error(f"Backslide (bs pdf) failed (code {e.returncode}).")
-        # stderr from bs pdf might include decktape errors if it failed
-        logger.error(f"bs pdf stderr:\n{e.stderr}")
-        raise gr.Error(f"Backslide PDF generation failed: {e.stderr[:500]}...")
+        logger.error(f"Decktape command failed (code {e.returncode}).")
+        logger.error(f"decktape stderr:\n{e.stderr}")
+        raise gr.Error(f"Decktape PDF failed: {e.stderr[:500]}...")
     except subprocess.TimeoutExpired:
-        logger.error("Backslide (bs pdf) timed out.")
-        raise gr.Error("PDF generation timed out (backslide/bs pdf).")
+        logger.error("Decktape command timed out.")
+        raise gr.Error("PDF generation timed out (decktape).")
     except Exception as e:
-        logger.error(f"Unexpected error during bs pdf: {e}", exc_info=True)
+        logger.error(
+            f"Unexpected error during decktape PDF generation: {e}", exc_info=True
+        )
         raise gr.Error(f"Unexpected error during PDF generation: {e}")
     finally:
-        # No intermediate HTML cleanup needed anymore
+        # --- Cleanup HTML output directory ---
+        if os.path.exists(html_output_dir_abs):
+            try:
+                shutil.rmtree(html_output_dir_abs)
+                logger.info(f"Cleaned up HTML temp dir: {html_output_dir_abs}")
+            except Exception as cleanup_e:
+                logger.warning(
+                    f"Could not cleanup HTML dir {html_output_dir_abs}: {cleanup_e}"
+                )
+        # Log final status
         if pdf_gen_success:
             logger.info(f"PDF generation process completed for {output_pdf_path}.")
         else:
