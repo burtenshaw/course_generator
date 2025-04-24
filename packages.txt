@@ -1,1 +1,3 @@
 chromium
+poppler-utils
+libpoppler-dev
