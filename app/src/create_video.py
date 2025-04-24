@@ -42,7 +42,7 @@ def parse_arguments():
     parser.add_argument(
         "--dpi",
         type=int,
-        default=120,
+        default=72,
         help="DPI for PDF to image conversion (default: 120)",
     )
     return parser.parse_args()
@@ -142,6 +142,7 @@ def concatenate_clips(
             fps=output_fps,
             codec="libx264",
             audio_codec="aac",
+            threads=16,
             # logger=None,  # Suppress verbose output
         )
         print("Final video file written successfully.")
