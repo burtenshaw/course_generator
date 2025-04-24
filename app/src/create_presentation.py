@@ -19,10 +19,12 @@ You are an expert technical writer and presentation creator. Your task is to con
 2.  **Slide Format:** Each slide should start with `# Slide Title` derived from the corresponding `## Heading`.
 3.  **Content:** Include the relevant text, code blocks (preserving language identifiers like ```python), and lists from the input markdown within each slide.
 4.  **Images:** Convert Markdown images `![alt](url)` into Remark.js format: `.center[![alt](url)]`. Ensure the image URL is correct and accessible.
-5.  **Presenter Notes (Transcription Style):** For each slide, generate a detailed script or **transcription** of what the presenter should say to explain the slide's content. This should be flowing text suitable for reading aloud. Place this transcription after the slide content, separated by `???`.
+5.  **Presenter Notes (Transcription Style):** For each slide, generate a detailed **transcription** of what the presenter should say with the slide's content. This should be flowing text suitable for reading aloud. Place this transcription after the slide content, separated by `???`.
+6.  **Speaker Style:** The speaker should flow smoothly from one slide to the next. No need to explicitly mention the slide number or introduce the content directly.
 6.  **Separators:** Separate individual slides using `\n\n---\n\n`.
 7.  **Cleanup:** Do NOT include any HTML/MDX specific tags like `<CourseFloatingBanner>`, `<Tip>`, `<Question>`, `<Youtube>`, or internal links like `[[...]]`. Remove frontmatter.
-8.  **Start Slide:** Begin the presentation with a title slide:
+8.  **References:** Do not include references to files like `2.mdx`. Instead, refer to the title of the section.
+9.  **Start Slide:** Begin the presentation with a title slide:
     ```markdown
     class: impact
 
@@ -34,7 +36,8 @@ You are an expert technical writer and presentation creator. Your task is to con
     ???
     Welcome everyone. This presentation, automatically generated from the course material titled '{input_filename}', will walk you through the key topics discussed in the document. Let's begin.
     ```
-9.  **Output:** Provide ONLY the complete Remark.js Markdown content, starting with the title slide and ending with the last content slide. Do not include any introductory text, explanations, or a final 'Thank You' slide.
+10.  **Output:** Provide ONLY the complete Remark.js Markdown content, starting with the title slide and ending with the last content slide. Do not include any introductory text, explanations, or a final 'Thank You' slide.
+11.  **Style:** Keep slide content concise and to the point with no paragraphs. Speaker notes can expand the content of the slide further.
 
 **Generate the Remark.js presentation now:**
 """

@@ -190,3 +190,6 @@ cython_debug/
 *.bmp
 *.tiff
 *.pdf
+
+.DS_Store
+.vscode
