@@ -251,7 +251,7 @@ def generate_pdf_from_markdown(markdown_file_path, output_pdf_path):
 
 
 # --- Helper Function to Read CSS ---
-def load_css(css_path="template/style.css"):
+def load_css(css_path="app/template/style.css"):
     """Loads CSS content from a file."""
     try:
         with open(css_path, "r", encoding="utf-8") as f:
@@ -296,8 +296,8 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
                         )
 
                         # --- Copy Template Directory for Cached Item ---
-                        template_src_dir = "template"
-                        template_dest_dir = os.path.join(temp_dir, "template")
+                        template_src_dir = "app/template"
+                        template_dest_dir = os.path.join(temp_dir, "app/template")
                         if os.path.isdir(template_src_dir):
                             try:
                                 shutil.copytree(template_src_dir, template_dest_dir)
@@ -999,6 +999,7 @@ with gr.Blocks(
         fn=step1_fetch_and_generate_presentation,
         inputs=[input_url],
         outputs=step1_outputs,
+        show_progress="full",
     ).then(
         fn=lambda s_data: [
             upd
@@ -1045,6 +1046,7 @@ with gr.Blocks(
         fn=step2_build_slides,
         inputs=step2_inputs,
         outputs=step2_outputs,
+        show_progress="full",
     ).then(
         fn=lambda image_paths: [
             gr.update(
@@ -1077,6 +1079,7 @@ with gr.Blocks(
         fn=step3_generate_audio,
         inputs=step3_inputs,
         outputs=step3_outputs,
+        show_progress="full",
     ).then(lambda: gr.update(selected=3), outputs=tabs_widget)  # Switch to Tab 4
 
     # Step 4 Click Handler
@@ -1089,6 +1092,7 @@ with gr.Blocks(
         fn=step4_generate_video,
         inputs=step4_inputs,
         outputs=step4_outputs,
+        show_progress="full",
     )
 
 if __name__ == "__main__":
