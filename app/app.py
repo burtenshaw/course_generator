@@ -1,33 +1,34 @@
+import logging
+import os
+import re
+import shelve
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+
 import gradio as gr
 import requests
 from bs4 import BeautifulSoup
-import os
-import re
-import subprocess
-import tempfile
-import shutil
-from pathlib import Path
-import logging
 from dotenv import load_dotenv
-import shelve
 
 # Import functions from your scripts (assuming they are structured appropriately)
 # It's often better to refactor scripts into functions for easier import
 try:
+    from huggingface_hub import InferenceClient
     from src.create_presentation import (
-        generate_presentation_with_llm,
         DEFAULT_LLM_MODEL,
         DEFAULT_PRESENTATION_PROMPT_TEMPLATE,
+        generate_presentation_with_llm,
     )
-    from src.transcription_to_audio import text_to_speech, VOICE_ID
     from src.create_video import (
-        find_audio_files,
+        cleanup_temp_files,
+        concatenate_clips,
         convert_pdf_to_images,
         create_video_clips,
-        concatenate_clips,
-        cleanup_temp_files,
+        find_audio_files,
     )
-    from huggingface_hub import InferenceClient
+    from src.transcription_to_audio import VOICE_ID, text_to_speech
 except ImportError as e:
     print(f"Error importing script functions: {e}")
     print("Please ensure scripts are in the 'src' directory and structured correctly.")

@@ -1,8 +1,9 @@
+import argparse
 import os
 import re
-from huggingface_hub import InferenceClient
 import time
-import argparse
+
+from huggingface_hub import InferenceClient
 
 # Use the model ID specified in the script's default
 DEFAULT_LLM_MODEL = "CohereLabs/c4ai-command-a-03-2025"  # Model ID from the error log

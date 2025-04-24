@@ -13,19 +13,19 @@ This will:
 4. Save audio files in {dir}/audio/{n}.wav format
 """
 
+import argparse
+import hashlib
+import json
+import logging
+import os
 import re
 import sys
-import os
-import argparse
-import json
-import hashlib
-from pathlib import Path
-import logging
 import time
-import requests
+from pathlib import Path
 
-from dotenv import load_dotenv
 import fal_client
+import requests
+from dotenv import load_dotenv
 
 load_dotenv()
 

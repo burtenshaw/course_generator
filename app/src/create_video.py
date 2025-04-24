@@ -1,6 +1,6 @@
-import os
-import glob
 import argparse
+import glob
+import os
 import sys
 from typing import List, Tuple
 
