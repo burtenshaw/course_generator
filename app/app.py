@@ -50,6 +50,7 @@ PRESENTATION_PROMPT = os.getenv(
 CACHE_DIR = ".cache"  # For TTS caching
 URL_CACHE_DIR = ".url_cache"
 URL_CACHE_FILE = os.path.join(URL_CACHE_DIR, "presentations_cache")
+TEMPLATE_DIR = os.getenv("TEMPLATE_DIR", "app/template")
 
 # Initialize clients (do this once if possible, or manage carefully in functions)
 try:
@@ -251,8 +252,9 @@ def generate_pdf_from_markdown(markdown_file_path, output_pdf_path):
 
 
 # --- Helper Function to Read CSS ---
-def load_css(css_path="app/template/style.css"):
-    """Loads CSS content from a file."""
+def load_css(css_filename="style.scss"):
+    """Loads CSS content from the template directory."""
+    css_path = os.path.join(TEMPLATE_DIR, css_filename)
     try:
         with open(css_path, "r", encoding="utf-8") as f:
             return f.read()
@@ -296,8 +298,10 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
                         )
 
                         # --- Copy Template Directory for Cached Item ---
-                        template_src_dir = "app/template"
-                        template_dest_dir = os.path.join(temp_dir, "app/template")
+                        template_src_dir = TEMPLATE_DIR
+                        template_dest_dir = os.path.join(
+                            temp_dir, os.path.basename(TEMPLATE_DIR)
+                        )
                         if os.path.isdir(template_src_dir):
                             try:
                                 shutil.copytree(template_src_dir, template_dest_dir)
@@ -387,8 +391,8 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
             logger.info(f"Presentation markdown saved to temp file: {md_path}")
 
             # --- Copy Template Directory for New Item ---
-            template_src_dir = "template"
-            template_dest_dir = os.path.join(temp_dir, "template")
+            template_src_dir = TEMPLATE_DIR
+            template_dest_dir = os.path.join(temp_dir, os.path.basename(TEMPLATE_DIR))
             if os.path.isdir(template_src_dir):
                 try:
                     shutil.copytree(template_src_dir, template_dest_dir)
