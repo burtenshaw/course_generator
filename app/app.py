@@ -283,7 +283,9 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
     if not url:
         raise gr.Error("Please enter a URL.")
     logger.info(f"Step 1: Fetching & Generating for {url}")
-    gr.Info(f"Starting Step 1: Fetching content from {url}...")
+
+    status_update = f"Starting Step 1: Fetching content from {url}..."
+    yield status_update
 
     # --- Cache Check ---
     try:
@@ -333,20 +335,26 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
                             )
 
                         progress(0.9, desc="Preparing editor from cache...")
+                        status_update = (
+                            "Loaded presentation from cache. Preparing editor..."
+                        )
+                        yield status_update
                         logger.info(f"Using cached data for {len(slides_data)} slides.")
                         # Return updates for the UI state and controls
-                        return (
+                        yield (
+                            status_update,  # Keep status
                             temp_dir,
                             md_path,
                             slides_data,
                             gr.update(visible=True),  # editor_column
                             gr.update(
                                 visible=True
-                            ),  # btn_generate_pdf (Enable PDF button next)
+                            ),  # btn_build_slides (Enable PDF button next)
                             gr.update(
                                 interactive=False
                             ),  # btn_fetch_generate (disable)
                         )
+                        return  # End generator here for cache hit
                     except Exception as e:
                         logger.error(f"Error writing cached markdown: {e}")
                         if os.path.exists(temp_dir):
@@ -359,11 +367,15 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
             if not hf_client:
                 raise gr.Error("LLM Client not initialized. Check API Key.")
 
+            status_update = "Fetching webpage content..."
+            yield status_update
             web_content = fetch_webpage_content(url)
             if not web_content:
                 raise gr.Error("Failed to fetch or parse content from the URL.")
 
             progress(0.3, desc="Generating presentation with LLM...")
+            status_update = "Generating presentation with LLM..."
+            yield status_update
             try:
                 presentation_md = generate_presentation_with_llm(
                     hf_client, LLM_MODEL, PRESENTATION_PROMPT, web_content, url
@@ -387,6 +399,8 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
                 )
 
             progress(0.7, desc="Parsing presentation slides...")
+            status_update = "Parsing presentation slides..."
+            yield status_update
             slides_data = parse_presentation_markdown(presentation_md)
             if not slides_data:
                 logger.error("Parsing markdown resulted in zero slides.")
@@ -429,21 +443,37 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
                 logger.error(f"Failed to write to cache for URL {url}: {e}")
 
             progress(0.9, desc="Preparing editor...")
+            status_update = "Generated presentation. Preparing editor..."
+            yield status_update
             logger.info(f"Prepared data for {len(slides_data)} slides.")
 
             # Return updates for the UI state and controls
-            return (
+            yield (
+                status_update,  # Keep status
                 temp_dir,
                 md_path,
                 slides_data,
                 gr.update(visible=True),  # editor_column
-                gr.update(visible=True),  # btn_generate_pdf (Enable PDF button next)
+                gr.update(visible=True),  # btn_build_slides (Enable PDF button next)
                 gr.update(interactive=False),  # btn_fetch_generate (disable)
             )
 
     except Exception as e:
         logger.error(f"Error in step 1 (fetch/generate): {e}", exc_info=True)
-        raise gr.Error(f"Error during presentation setup: {e}")
+        status_update = f"Error during presentation setup: {e}"
+        yield status_update  # Yield error status
+        # Need to yield the correct number of outputs even on error to avoid issues
+        yield (
+            status_update,
+            None,
+            None,
+            [],
+            gr.update(),
+            gr.update(),
+            gr.update(interactive=True),
+        )
+        # Optionally re-raise or handle differently
+        # raise gr.Error(f"Error during presentation setup: {e}")
 
 
 def step2_build_slides(
@@ -457,7 +487,7 @@ def step2_build_slides(
     if not all([state_temp_dir, state_md_path, state_slides_data]):
         raise gr.Error("Session state missing.")
     logger.info("Step 2: Building Slides (PDF + Images)")
-    gr.Info("Starting Step 2: Building slides...")
+
     num_slides = len(state_slides_data)
     MAX_SLIDES = 20
     all_editors = list(editors)
@@ -484,9 +514,14 @@ def step2_build_slides(
 
     progress(0.3, desc="Generating PDF...")
     pdf_output_path = os.path.join(state_temp_dir, "presentation.pdf")
-    generated_pdf_path = generate_pdf_from_markdown(state_md_path, pdf_output_path)
-    if not generated_pdf_path:
-        raise gr.Error("PDF generation failed (check logs).")
+    try:
+        generated_pdf_path = generate_pdf_from_markdown(state_md_path, pdf_output_path)
+        if not generated_pdf_path:
+            raise gr.Error("PDF generation failed (check logs).")
+    except gr.Error as e:
+        raise e  # Re-raise
+    except Exception as e:
+        raise gr.Error(f"Unexpected PDF Error: {e}")
 
     progress(0.7, desc="Converting PDF to images...")
     pdf_images = []
@@ -498,26 +533,24 @@ def step2_build_slides(
             raise gr.Error("PDF to image conversion failed.")
         logger.info(f"Converted PDF to {len(pdf_images)} images.")
         if len(pdf_images) != num_slides:
-            gr.Warning(
-                f"PDF page count ({len(pdf_images)}) != slide count ({num_slides}). Images might mismatch."
-            )
+            warning_msg = f"Warning: PDF page count ({len(pdf_images)}) != slide count ({num_slides}). Images might mismatch."
+            gr.Warning(warning_msg)
             # Pad or truncate? For now, just return what we have, UI update logic handles MAX_SLIDES
     except Exception as e:
         logger.error(f"Error converting PDF to images: {e}", exc_info=True)
-        # Proceed without images? Or raise error? Let's raise.
         raise gr.Error(f"Failed to convert PDF to images: {e}")
 
     info_msg = f"Built {len(pdf_images)} slide images. Ready for Step 3."
     logger.info(info_msg)
-    gr.Info(info_msg)
     progress(1.0, desc="Slide build complete.")
-    # Return tuple WITHOUT status textbox update
-    return (
+    status_update = f"Step 2 Complete: {info_msg}"
+    yield (
+        status_update,
         generated_pdf_path,
         pdf_images,  # Return the list of image paths
-        gr.update(visible=True),
-        gr.update(visible=False),
-        gr.update(value=generated_pdf_path, visible=True),
+        gr.update(visible=True),  # btn_generate_audio
+        gr.update(visible=False),  # btn_build_slides
+        gr.update(value=generated_pdf_path, visible=True),  # pdf_download_link
     )
 
 
@@ -527,21 +560,24 @@ def step3_generate_audio(*args, progress=gr.Progress(track_tqdm=True)):
     # args[0]: state_temp_dir
     # args[1]: state_md_path
     # args[2]: original_slides_data (list of dicts, used to get count)
-    # args[3 : 3 + MAX_SLIDES]: values from all_code_editors
-    # args[3 + MAX_SLIDES :]: values from all_notes_textboxes
+    # args[3] : status_textbox (This index needs adjustment if adding more inputs)
+    # args[4 : 4 + MAX_SLIDES]: values from all_code_editors
+    # args[4 + MAX_SLIDES :]: values from all_notes_textboxes
 
     state_temp_dir = args[0]
     state_md_path = args[1]
     original_slides_data = args[2]
-    editors = args[3:]
+    # editors = args[3:] # noqa F841 - Keeping for potential future use or clarity of arg structure # Old slicing
     num_slides = len(original_slides_data)
     if num_slides == 0:
         logger.error("Step 3 (Audio) called with zero slides data.")
         raise gr.Error("No slide data available. Please start over.")
 
     MAX_SLIDES = 20  # Ensure this matches UI definition
-    code_editors_start_index = 3
-    notes_textboxes_start_index = 3 + MAX_SLIDES
+    # --- Adjust indices based on adding status_textbox input ---
+    # Assuming status_textbox is now at index 3
+    code_editors_start_index = 4  # Was 3
+    notes_textboxes_start_index = 4 + MAX_SLIDES  # Was 3 + MAX_SLIDES
 
     # Slice the *actual* edited values based on num_slides
     edited_contents = args[
@@ -588,8 +624,10 @@ def step3_generate_audio(*args, progress=gr.Progress(track_tqdm=True)):
         logger.info(f"Updated presentation markdown before audio gen: {state_md_path}")
     except IOError as e:
         logger.error(f"Failed to save updated markdown before audio gen: {e}")
-        # Continue with audio gen, but log warning
-        gr.Warning(f"Could not save latest notes to markdown file: {e}")
+        warning_msg = f"Warning: Could not save latest notes to markdown file: {e}"
+        gr.Warning(warning_msg)
+        status_update = f"Warning: {warning_msg}"
+        yield status_update  # Yield status with warning
 
     generated_audio_paths = ["" for _ in range(num_slides)]
     audio_generation_failed = False
@@ -598,8 +636,9 @@ def step3_generate_audio(*args, progress=gr.Progress(track_tqdm=True)):
     for i in range(num_slides):
         note_text = edited_notes_list[i]
         slide_num = i + 1
+        progress_val = (i + 1) / num_slides * 0.8 + 0.1
         progress(
-            (i + 1) / num_slides * 0.8 + 0.1,
+            progress_val,
             desc=f"Audio slide {slide_num}/{num_slides}",
         )
         output_file_path = Path(audio_dir) / f"{slide_num}.wav"
@@ -659,12 +698,13 @@ def step3_generate_audio(*args, progress=gr.Progress(track_tqdm=True)):
         gr.Warning(info_msg)
     else:
         info_msg += "Ready for Step 4."
-        gr.Info(info_msg)
     logger.info(info_msg)
     progress(1.0, desc="Audio generation complete.")
+    status_update = f"Step 3 Complete: {info_msg}"
 
-    # Return tuple WITHOUT status textbox update
-    return (
+    # Return tuple including status update + original outputs
+    yield (
+        status_update,
         audio_dir,
         gr.update(visible=True),  # btn_generate_video
         gr.update(visible=False),  # btn_generate_audio
@@ -690,16 +730,16 @@ def step4_generate_video(
         )
 
     video_output_path = os.path.join(state_temp_dir, "final_presentation.mp4")
-
     progress(0.1, desc="Preparing video components...")
     pdf_images = []  # Initialize to ensure cleanup happens
     try:
         # Find audio files (natsorted)
         audio_files = find_audio_files(state_audio_dir, "*.wav")
         if not audio_files:
-            logger.warning(
-                f"No WAV files found in {state_audio_dir}. Video might lack audio."
-            )
+            warning_msg = f"Warning: No WAV files found in {state_audio_dir}. Video might lack audio."
+            logger.warning(warning_msg)
+            status_update = f"Warning: {warning_msg}"
+            yield status_update
             # Decide whether to proceed with silent video or error out
             # raise gr.Error(f"No audio files found in {state_audio_dir}")
 
@@ -712,10 +752,10 @@ def step4_generate_video(
         # Allow video generation even if audio is missing or count mismatch
         # The create_video_clips function should handle missing audio gracefully (e.g., use image duration)
         if len(pdf_images) != len(audio_files):
-            logger.warning(
-                f"Mismatch: {len(pdf_images)} PDF pages vs {len(audio_files)} audio files. Video clips might have incorrect durations or missing audio."
-            )
-            # Pad the shorter list? For now, let create_video_clips handle it.
+            warning_msg = f"Warning: Mismatch: {len(pdf_images)} PDF pages vs {len(audio_files)} audio files. Video clips might have incorrect durations or missing audio."
+            logger.warning(warning_msg)
+            status_update = f"Warning: {warning_msg}"
+            yield status_update
 
         progress(0.5, desc="Creating individual video clips...")
         buffer_seconds = 1.0
@@ -739,14 +779,22 @@ def step4_generate_video(
         if pdf_images:
             cleanup_temp_files(pdf_images)
         logger.error(f"Video generation failed: {e}", exc_info=True)
+        status_update = f"Video generation failed: {e}"
+        yield (
+            status_update,
+            gr.update(),
+            gr.update(visible=True),
+        )  # Keep button visible
         raise gr.Error(f"Video generation failed: {e}")
 
     info_msg = f"Video generated: {os.path.basename(video_output_path)}"
     logger.info(info_msg)
-    gr.Info(info_msg)
     progress(1.0, desc="Video Complete.")
-    # Return tuple WITHOUT status textbox update
-    return (
+    status_update = f"Step 4 Complete: {info_msg}"
+
+    # Return tuple including status update
+    yield (
+        status_update,
         gr.update(value=video_output_path, visible=True),  # video_output
         gr.update(visible=False),  # btn_generate_video
     )
@@ -857,7 +905,7 @@ with gr.Blocks(
                     )
                 with gr.Column(scale=4):
                     gr.Markdown(
-                        "### Instructions\n1. Enter URL & click 'Fetch & Generate'.\n2. Editor appears below tabs.\n3. Go to next tab."
+                        "### Instructions\\n1. Enter URL & click 'Fetch & Generate'.\\n2. Editor appears below.\\n3. Go to next tab."
                     )
 
         # Tab 2: Build Slides
@@ -873,7 +921,7 @@ with gr.Blocks(
                     )
                 with gr.Column(scale=4):
                     gr.Markdown(
-                        "### Instructions\n1. Edit content/notes below.\n2. Click 'Build Slides'. Images appear.\n3. Download PDF from sidebar.\n4. Go to next tab."
+                        "### Instructions\\n1. Edit content/notes below.\\n2. Click 'Build Slides'. Images appear.\\n3. Download PDF from sidebar.\\n4. Go to next tab."
                     )
 
         # Tab 3: Generate Audio
@@ -886,7 +934,7 @@ with gr.Blocks(
                     )
                 with gr.Column(scale=4):
                     gr.Markdown(
-                        "### Instructions\n1. Finalize notes below.\n2. Click 'Generate Audio'.\n3. Regenerate if needed.\n4. Go to next tab."
+                        "### Instructions\\n1. Finalize notes below.\\n2. Click 'Generate Audio'.\\n3. Regenerate if needed.\\n4. Go to next tab."
                     )
 
         # Tab 4: Generate Video
@@ -899,14 +947,14 @@ with gr.Blocks(
                     )
                 with gr.Column(scale=4):
                     gr.Markdown(
-                        "### Instructions\n1. Click 'Create Video'.\n2. Video appears below."
+                        "### Instructions\\n1. Click 'Create Video'.\\n2. Video appears below."
                     )
                     video_output = gr.Video(label="Final Video", visible=False)
 
     # Define the shared editor structure once, AFTER tabs
     slide_editors_group = []
     with gr.Column(visible=False) as editor_column:  # Initially hidden
-        gr.Markdown("--- \n## Edit Slides & Notes")
+        gr.Markdown("--- \\n## Edit Slides & Notes")
         gr.Markdown("_(PDF uses content & notes, Audio uses notes only)_")
         for i in range(MAX_SLIDES):
             with gr.Accordion(f"Slide {i + 1}", open=(i == 0), visible=False) as acc:
@@ -919,19 +967,21 @@ with gr.Blocks(
                             interactive=True,
                             visible=False,
                         )
-                        notes_textbox = gr.Code(
-                            label="Script/Notes (for Audio)",
-                            lines=8,
-                            language="markdown",
-                            interactive=True,
-                            visible=False,
+                        notes_textbox = (
+                            gr.Textbox(  # Changed from gr.Code to gr.Textbox
+                                label="Script/Notes (for Audio)",
+                                lines=8,
+                                # language="markdown", # Removed language parameter
+                                interactive=True,
+                                visible=False,
+                            )
                         )
                     with gr.Column(scale=1):
                         slide_image = gr.Image(
                             label="Slide Image",
                             visible=False,
                             interactive=False,
-                            height=300,
+                            # height=300, # Removed fixed height
                         )
                         md_preview = gr.Markdown(visible=False)
                 with gr.Row():  # Row for audio controls
@@ -962,6 +1012,16 @@ with gr.Blocks(
                     show_progress="hidden",
                 )
 
+    # --- Status Textbox (Added) ---
+    with gr.Row():
+        status_textbox = gr.Textbox(
+            label="Status",
+            value="Enter a URL and click 'Fetch & Generate' to start.",
+            interactive=False,
+            lines=1,
+            max_lines=1,
+        )
+
     # --- Component Lists for Updates ---
     all_editor_components = [comp for group in slide_editors_group for comp in group]
     all_code_editors = [group[1] for group in slide_editors_group]
@@ -970,92 +1030,11 @@ with gr.Blocks(
     all_regen_buttons = [group[5] for group in slide_editors_group]
     all_slide_images = [group[6] for group in slide_editors_group]
 
-    # --- Function to regenerate audio --- (Assumed correct)
-    # ... (regenerate_single_audio implementation as fixed before)...
-    def regenerate_single_audio(
-        slide_idx, note_text, temp_dir, progress=gr.Progress(track_tqdm=True)
-    ):
-        # ...(Implementation as fixed before)...
-        if (
-            not temp_dir
-            or not isinstance(temp_dir, str)
-            or not os.path.exists(temp_dir)
-        ):
-            logger.error(f"Regen audio failed: Invalid temp_dir '{temp_dir}'")
-            return gr.update(value=None, visible=False)
-        slide_num = slide_idx + 1
-        audio_dir = os.path.join(temp_dir, "audio")
-        os.makedirs(audio_dir, exist_ok=True)
-        output_file = Path(audio_dir) / f"{slide_num}.wav"
-        logger.info(f"Regenerating audio for slide {slide_num} -> {output_file}")
-        progress(0.1, desc=f"Regen audio slide {slide_num}...")
-        if not note_text or not note_text.strip():
-            logger.warning(f"Note for slide {slide_num} empty. Generating silence.")
-            try:
-                subprocess.run(
-                    [
-                        "ffmpeg",
-                        "-y",
-                        "-f",
-                        "lavfi",
-                        "-i",
-                        "anullsrc=r=44100:cl=mono",
-                        "-t",
-                        "0.1",
-                        "-q:a",
-                        "9",
-                        str(output_file),
-                    ],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-                logger.info(f"Created silent placeholder: {output_file}")
-                progress(1.0, desc=f"Generated silence slide {slide_num}.")
-                return gr.update(value=str(output_file), visible=True)
-            except Exception as e:
-                logger.error(f"Failed silent gen slide {slide_num}: {e}")
-                return gr.update(value=None, visible=False)
-        else:
-            try:
-                success = text_to_speech(
-                    note_text, output_file, voice=VOICE_ID, cache_dir=CACHE_DIR
-                )
-                if success:
-                    logger.info(f"Regen OK slide {slide_num}")
-                    progress(1.0, desc=f"Audio regen OK slide {slide_num}.")
-                    return gr.update(value=str(output_file), visible=True)
-                else:
-                    logger.error(f"Regen TTS failed slide {slide_num}")
-                    return gr.update(value=None, visible=False)
-            except Exception as e:
-                logger.error(
-                    f"Regen TTS exception slide {slide_num}: {e}", exc_info=True
-                )
-                return gr.update(value=None, visible=False)
-
-    # --- Connect the individual Re-generate buttons ---
-    # Update unpacking to include slide_image (7 items)
-    for i, (
-        acc,
-        code_edit,
-        md_preview,
-        notes_tb,
-        audio_pl,
-        regen_btn,
-        slide_image,
-    ) in enumerate(slide_editors_group):
-        regen_btn.click(
-            fn=regenerate_single_audio,
-            inputs=[gr.State(i), notes_tb, state_temp_dir],
-            outputs=[audio_pl],
-            show_progress="minimal",
-        )
-
     # --- Main Button Click Handlers --- (Outputs use locally defined component vars)
 
     # Step 1 Click Handler
     step1_outputs = [
+        status_textbox,  # Added status output
         state_temp_dir,
         state_md_path,
         state_slides_data,
@@ -1069,31 +1048,36 @@ with gr.Blocks(
         outputs=step1_outputs,
         show_progress="full",
     ).then(
-        fn=lambda s_data: [
-            upd
-            for i, slide in enumerate(s_data)
-            if i < MAX_SLIDES
-            for upd in [
-                gr.update(
-                    label=f"Slide {i + 1}: {slide['content'][:25]}...",
-                    visible=True,
-                    open=(i == 0),
-                ),  # Accordion
-                gr.update(value=slide["content"], visible=True),  # Code Editor
-                gr.update(value=slide["content"], visible=True),  # MD Preview
-                gr.update(value=slide["notes"], visible=True),  # Notes Textbox
-                gr.update(value=None, visible=False),  # Audio Player
-                gr.update(visible=False),  # Regen Button
-                gr.update(value=None, visible=False),  # Slide Image
+        fn=lambda s_data: (
+            gr.update(value="Editor populated. Proceed to Step 2.")  # Update status
+        )
+        + tuple(
+            [
+                upd
+                for i, slide in enumerate(s_data)
+                if i < MAX_SLIDES
+                for upd in [
+                    gr.update(
+                        label=f"Slide {i + 1}: {slide['content'][:25]}...",
+                        visible=True,
+                        open=(i == 0),
+                    ),  # Accordion
+                    gr.update(value=slide["content"], visible=True),  # Code Editor
+                    gr.update(value=slide["content"], visible=True),  # MD Preview
+                    gr.update(value=slide["notes"], visible=True),  # Notes Textbox
+                    gr.update(value=None, visible=False),  # Audio Player
+                    gr.update(visible=False),  # Regen Button
+                    gr.update(value=None, visible=False),  # Slide Image
+                ]
             ]
-        ]
-        + [
-            upd
-            for i in range(len(s_data), MAX_SLIDES)
-            for upd in [gr.update(visible=False)] * 7
-        ],
+            + [
+                upd
+                for i in range(len(s_data), MAX_SLIDES)
+                for upd in [gr.update(visible=False)] * 7
+            ]
+        ),  # Keep editor updates
         inputs=[state_slides_data],
-        outputs=all_editor_components,
+        outputs=[status_textbox] + all_editor_components,  # Add status_textbox output
         show_progress="hidden",
     ).then(lambda: gr.update(selected=1), outputs=tabs_widget)  # Switch to Tab 2
 
@@ -1104,6 +1088,7 @@ with gr.Blocks(
         + all_notes_textboxes
     )
     step2_outputs = [
+        status_textbox,  # Added status output
         state_pdf_path,
         state_pdf_image_paths,
         btn_generate_audio,  # Enable button in Tab 3
@@ -1116,26 +1101,39 @@ with gr.Blocks(
         outputs=step2_outputs,
         show_progress="full",
     ).then(
-        fn=lambda image_paths: [
-            gr.update(
-                value=image_paths[i] if i < len(image_paths) else None,
-                visible=(i < len(image_paths)),
-            )
-            for i in range(MAX_SLIDES)
-        ],
+        fn=lambda image_paths: (
+            gr.update(value="Slide images updated. Proceed to Step 3.")  # Update status
+        )
+        + tuple(
+            [
+                gr.update(
+                    value=image_paths[i] if i < len(image_paths) else None,
+                    visible=(i < len(image_paths)),
+                )
+                for i in range(MAX_SLIDES)
+            ]
+        ),  # Keep image updates
         inputs=[state_pdf_image_paths],
-        outputs=all_slide_images,
+        outputs=[status_textbox] + all_slide_images,  # Add status_textbox output
         show_progress="hidden",
     ).then(lambda: gr.update(selected=2), outputs=tabs_widget)  # Switch to Tab 3
 
     # Step 3 Click Handler
+    # Need to add status_textbox to inputs for step 3
     step3_inputs = (
-        [state_temp_dir, state_md_path, state_slides_data]
+        [
+            state_temp_dir,
+            state_md_path,
+            state_slides_data,
+            status_textbox,
+        ]  # Added status_textbox
         + all_code_editors
         + all_notes_textboxes
     )
+    # Need to add status_textbox to outputs for step 3
     step3_outputs = (
         [
+            status_textbox,  # Added status output
             state_audio_dir,
             btn_generate_video,  # Enable button in Tab 4
             btn_generate_audio,  # Disable self
@@ -1148,11 +1146,20 @@ with gr.Blocks(
         inputs=step3_inputs,
         outputs=step3_outputs,
         show_progress="full",
-    ).then(lambda: gr.update(selected=3), outputs=tabs_widget)  # Switch to Tab 4
+    ).then(
+        lambda: (
+            gr.update(value="Audio generated. Proceed to Step 4."),
+            gr.update(selected=3),
+        ),  # Update status and switch tab
+        outputs=[status_textbox, tabs_widget],  # Add status_textbox output
+        show_progress="hidden",  # Hide progress for simple status update + tab switch
+    )
 
     # Step 4 Click Handler
-    step4_inputs = [state_temp_dir, state_audio_dir, state_pdf_path]
+    # Add status_textbox to inputs and outputs
+    step4_inputs = [state_temp_dir, state_audio_dir, state_pdf_path, status_textbox]
     step4_outputs = [
+        status_textbox,  # Added status output
         video_output,  # Update video output in Tab 4
         btn_generate_video,  # Disable self
     ]
