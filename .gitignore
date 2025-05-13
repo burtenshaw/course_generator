@@ -193,3 +193,7 @@ cython_debug/
 
 .DS_Store
 .vscode
+
+data/
+.url_cache
+.DS_Store
