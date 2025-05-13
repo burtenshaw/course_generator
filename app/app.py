@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from urllib.parse import urljoin, urlparse
 
 import gradio as gr
 import requests
@@ -67,17 +68,19 @@ except Exception as e:
 
 
 def fetch_webpage_content(url):
-    """Fetches and extracts basic text content from a webpage."""
+    """Fetches and extracts text content and image URLs from a webpage."""
     logger.info(f"Fetching content from: {url}")
     try:
         response = requests.get(url, timeout=15)
         response.raise_for_status()  # Raise an exception for bad status codes
         soup = BeautifulSoup(response.text, "html.parser")
+        base_url = url  # For resolving relative image URLs
 
         # Basic text extraction (can be improved significantly)
         paragraphs = soup.find_all("p")
         headings = soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])
         list_items = soup.find_all("li")
+        images = soup.find_all("img")
 
         content = (
             "\n".join([h.get_text() for h in headings])
@@ -87,18 +90,36 @@ def fetch_webpage_content(url):
             + "\n".join(["- " + li.get_text() for li in list_items])
         )
 
+        # Extract image URLs and make them absolute
+        image_urls = []
+        for img in images:
+            src = img.get("src")
+            if src:
+                # Construct absolute URL
+                absolute_src = urljoin(base_url, src)
+                # Basic check if it looks like a valid image URL (optional)
+                parsed_src = urlparse(absolute_src)
+                if parsed_src.scheme in [
+                    "http",
+                    "https",
+                ] and parsed_src.path.lower().endswith(
+                    (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
+                ):
+                    image_urls.append(absolute_src)
+
         # Simple cleanup
         content = re.sub(r"\s\s+", " ", content).strip()
         logger.info(
-            f"Successfully fetched and parsed content (length: {len(content)})."
+            f"Successfully fetched content (len: {len(content)}), "
+            f"found {len(image_urls)} images."
         )
-        return content
+        return content, image_urls  # Return both content and image URLs
     except requests.exceptions.RequestException as e:
         logger.error(f"Error fetching URL {url}: {e}")
-        return None
+        return None, []
     except Exception as e:
         logger.error(f"Error parsing URL {url}: {e}")
-        return None
+        return None, []
 
 
 def parse_presentation_markdown(markdown_content):
@@ -127,9 +148,8 @@ def reconstruct_presentation_markdown(slides_data):
     full_md = []
     for slide in slides_data:
         slide_md = slide["content"]
-        if slide[
-            "notes"
-        ]:  # Only add notes separator if notes exist and are not just whitespace
+        # Only add notes separator if notes exist and are not just whitespace
+        if slide["notes"] and slide["notes"].strip():
             slide_md += f"\n\n???\n{slide['notes'].strip()}"
         full_md.append(slide_md.strip())  # Ensure each slide part is stripped
     return "\n\n---\n\n".join(full_md)
@@ -170,7 +190,7 @@ def generate_pdf_from_markdown(markdown_file_path, output_pdf_path):
                 logger.error(f"Files in {html_output_dir_abs}: {files_in_dir}")
             except FileNotFoundError:
                 logger.error(
-                    f"HTML output directory {html_output_dir_abs} not found after bs run."
+                    f"HTML output dir {html_output_dir_abs} not found after bs run."
                 )
             raise FileNotFoundError(
                 f"Generated HTML not found: {generated_html_path_abs}"
@@ -228,7 +248,8 @@ def generate_pdf_from_markdown(markdown_file_path, output_pdf_path):
 
     except FileNotFoundError:
         logger.error(
-            "`decktape` command not found. Install decktape (`npm install -g decktape`)."
+            "`decktape` command not found. "
+            "Install decktape (`npm install -g decktape`)."
         )
         raise gr.Error("PDF generation tool (decktape) not found.")
     except subprocess.CalledProcessError as e:
@@ -305,6 +326,7 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
                 cached_data = cache[url]
                 presentation_md = cached_data.get("presentation_md")
                 slides_data = cached_data.get("slides_data")
+                # image_urls = cached_data.get("image_urls", []) # Load cached images (optional)
 
                 if not presentation_md:
                     logger.warning(
@@ -317,7 +339,8 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
 
                 if presentation_md and slides_data:
                     logger.info(
-                        f"Found complete cache entry for {url} with {len(slides_data)} slides."
+                        f"Found complete cache entry for {url} "
+                        f"with {len(slides_data)} slides."
                     )
                     temp_dir = tempfile.mkdtemp()
                     md_path = os.path.join(temp_dir, "presentation.md")
@@ -337,7 +360,8 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
                             try:
                                 shutil.copytree(template_src_dir, template_dest_dir)
                                 logger.info(
-                                    f"Copied template dir to {template_dest_dir} (cached)"
+                                    f"Copied template dir to {template_dest_dir} "
+                                    f"(cached)"
                                 )
                             except Exception as copy_e:
                                 logger.error(
@@ -390,8 +414,8 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
                         # If writing cache fails, raise to trigger full regeneration flow
                         raise gr.Error(f"Failed to write cached markdown: {e}")
                 else:
-                    # This case is now covered by the more specific logging above
-                    pass  # Continue to regeneration
+                    # Cache entry incomplete, proceed to regeneration
+                    pass
             # --- Cache Miss or Failed Cache Load ---
             logger.info(f"Cache miss for URL: {url}. Proceeding with generation.")
             progress(0.1, desc="Fetching webpage content...")
@@ -408,7 +432,9 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
                 gr.update(),
                 gr.update(),
             )
-            web_content = fetch_webpage_content(url)
+            web_content, image_urls = fetch_webpage_content(
+                url
+            )  # Get text and image URLs
             if not web_content:
                 raise gr.Error("Failed to fetch or parse content from the URL.")
 
@@ -424,8 +450,14 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
                 gr.update(),
             )
             try:
+                # Pass image_urls to the LLM generation function
                 presentation_md = generate_presentation_with_llm(
-                    hf_client, LLM_MODEL, PRESENTATION_PROMPT, web_content, url
+                    hf_client,
+                    LLM_MODEL,
+                    PRESENTATION_PROMPT,
+                    web_content,
+                    url,
+                    image_urls=image_urls,
                 )
             except Exception as e:
                 logger.error(f"Error during LLM call: {e}", exc_info=True)
@@ -487,9 +519,11 @@ def step1_fetch_and_generate_presentation(url, progress=gr.Progress(track_tqdm=T
             # --- Store in Cache ---
             try:
                 with shelve.open(URL_CACHE_FILE) as cache_write:
+                    # Store presentation_md and slides_data
                     cache_write[url] = {
                         "presentation_md": presentation_md,
                         "slides_data": slides_data,
+                        # "image_urls": image_urls # Optionally cache URLs
                     }
                     logger.info(
                         f"Stored generated presentation in cache for URL: {url}"
@@ -694,10 +728,14 @@ def step2_build_slides(
             raise gr.Error("PDF to image conversion failed.")
         logger.info(f"Converted PDF to {len(pdf_images)} images.")
         if len(pdf_images) != num_slides:
-            warning_msg = f"Warning: PDF page count ({len(pdf_images)}) != slide count ({num_slides}). Images might mismatch."
+            warning_msg = (
+                f"Warning: PDF page count ({len(pdf_images)}) != "
+                f"slide count ({num_slides}). Images might mismatch."
+            )
             gr.Warning(warning_msg)
             status_update += f" ({warning_msg})"
-            # Pad or truncate? For now, just return what we have, UI update logic handles MAX_SLIDES
+            # Pad or truncate? For now, just return what we have,
+            # UI update logic handles MAX_SLIDES
     except Exception as e:
         logger.error(f"Error converting PDF to images: {e}", exc_info=True)
         status_update = f"Failed to convert PDF to images: {e}"
@@ -747,17 +785,16 @@ def step3_generate_audio(*args, progress=gr.Progress(track_tqdm=True)):
     state_md_path = args[1]
     original_slides_data = args[2]
 
-    # editors = args[3:] # Old slicing
+    # --- Define slide counts and indices ---
     num_slides = len(original_slides_data)
     if num_slides == 0:
         logger.error("Step 3 (Audio) called with zero slides data.")
         raise gr.Error("No slide data available. Please start over.")
 
     MAX_SLIDES = 20  # Ensure this matches UI definition
-    # --- Adjust indices based on removing status_textbox input ---
-    # Start editors from index 3 now
     code_editors_start_index = 3
     notes_textboxes_start_index = 3 + MAX_SLIDES
+    # ----------------------------------------
 
     # Slice the *actual* edited values based on num_slides
     edited_contents = args[
@@ -773,7 +810,9 @@ def step3_generate_audio(*args, progress=gr.Progress(track_tqdm=True)):
     # Check slicing
     if len(edited_contents) != num_slides or len(edited_notes_list) != num_slides:
         logger.error(
-            f"Input slicing error (Audio step): Expected {num_slides}, got {len(edited_contents)} contents, {len(edited_notes_list)} notes."
+            f"Input slicing error (Audio step): Expected {num_slides}, "
+            f"got {len(edited_contents)} contents, "
+            f"{len(edited_notes_list)} notes."
         )
         raise gr.Error(
             f"Input processing error: Mismatch after slicing ({num_slides} slides)."
@@ -820,8 +859,11 @@ def step3_generate_audio(*args, progress=gr.Progress(track_tqdm=True)):
         ) * MAX_SLIDES * 2
         # Note: We continue processing audio even if saving markdown fails
         # If we need to stop and return final state, do it here:
-        # yield (gr.update(value=status_update), state_audio_dir, gr.update(), gr.update(visible=True), *[gr.update()]*N, *[gr.update()]*N)
-        # raise gr.Error(f"Failed to save updated markdown before audio gen: {e}") # Old raise
+        # yield (gr.update(value=status_update), state_audio_dir,
+        #        gr.update(), gr.update(visible=True),
+        #        *[gr.update()]*N, *[gr.update()]*N)
+        # raise gr.Error(
+        #    f"Failed to save updated markdown before audio gen: {e}")
 
     generated_audio_paths = ["" for _ in range(num_slides)]
     audio_generation_failed = False
@@ -939,7 +981,10 @@ def step4_generate_video(
         # Find audio files (natsorted)
         audio_files = find_audio_files(state_audio_dir, "*.wav")
         if not audio_files:
-            warning_msg = f"Warning: No WAV files found in {state_audio_dir}. Video might lack audio."
+            warning_msg = (
+                f"Warning: No WAV files found in {state_audio_dir}. "
+                f"Video might lack audio."
+            )
             logger.warning(warning_msg)
             status_update += f" ({warning_msg})"
             # Decide whether to proceed with silent video or error out
@@ -954,9 +999,14 @@ def step4_generate_video(
             raise gr.Error(f"Failed to convert PDF ({state_pdf_path}) to images.")
 
         # Allow video generation even if audio is missing or count mismatch
-        # The create_video_clips function should handle missing audio gracefully (e.g., use image duration)
+        # The create_video_clips function should handle missing audio gracefully
+        # (e.g., use image duration)
         if len(pdf_images) != len(audio_files):
-            warning_msg = f"Warning: Mismatch: {len(pdf_images)} PDF pages vs {len(audio_files)} audio files. Video clips might have incorrect durations or missing audio."
+            warning_msg = (
+                f"Warning: Mismatch: {len(pdf_images)} PDF pages vs "
+                f"{len(audio_files)} audio files. Video clips might have "
+                f"incorrect durations or missing audio."
+            )
             logger.warning(warning_msg)
             status_update += f" ({warning_msg})"
             # yield status_update # Old yield
@@ -1036,7 +1086,8 @@ def check_and_install_npm_dependency(command_name, package_name, install_instruc
         return True
     else:
         logger.warning(
-            f"Command '{command_name}' not found. Attempting to install '{package_name}' globally via npm..."
+            f"Command '{command_name}' not found. Attempting to install "
+            f"'{package_name}' globally via npm..."
         )
         npm_command = ["npm", "install", "-g", package_name]
         try:
@@ -1052,12 +1103,15 @@ def check_and_install_npm_dependency(command_name, package_name, install_instruc
                 return True
             else:
                 logger.error(
-                    f"Installation of '{package_name}' reported success, but command '{command_name}' still not found. Check npm logs and PATH."
+                    f"Installation of '{package_name}' reported success, but "
+                    f"command '{command_name}' still not found. Check npm "
+                    f"logs and PATH."
                 )
                 return False
         except FileNotFoundError:
             logger.error(
-                f"`npm` command not found. Cannot install '{package_name}'. {install_instructions}"
+                f"`npm` command not found. Cannot install '{package_name}'. "
+                f"{install_instructions}"
             )
             return False
         except subprocess.CalledProcessError as e:
@@ -1067,7 +1121,8 @@ def check_and_install_npm_dependency(command_name, package_name, install_instruc
             logger.error(f"npm stdout:\n{e.stdout}")
             logger.error(f"npm stderr:\n{e.stderr}")
             logger.error(
-                "Installation might require administrator privileges (e.g., run with 'sudo')."
+                "Installation might require administrator privileges "
+                "(e.g., run with 'sudo')."
             )
             return False
         except subprocess.TimeoutExpired:
@@ -1075,7 +1130,8 @@ def check_and_install_npm_dependency(command_name, package_name, install_instruc
             return False
         except Exception as e:
             logger.error(
-                f"An unexpected error occurred during '{package_name}' installation: {e}",
+                f"An unexpected error occurred during '{package_name}' "
+                f"installation: {e}",
                 exc_info=True,
             )
             return False
@@ -1117,7 +1173,8 @@ with gr.Blocks(
                     )
                 with gr.Column(scale=4):
                     gr.Markdown(
-                        "### Instructions\n1. Enter URL & click 'Fetch & Generate'.\n2. Editor appears below.\n3. Go to next tab."
+                        "### Instructions\n1. Enter URL & click 'Fetch & Generate'.\n"
+                        "2. Editor appears below.\n3. Go to next tab."
                     )
 
         # Tab 2: Build Slides
@@ -1133,7 +1190,9 @@ with gr.Blocks(
                     )
                 with gr.Column(scale=4):
                     gr.Markdown(
-                        "### Instructions\n1. Edit content/notes below.\n2. Click 'Build Slides'. Images appear.\n3. Download PDF from sidebar.\n4. Go to next tab."
+                        "### Instructions\n1. Edit content/notes below.\n"
+                        "2. Click 'Build Slides'. Images appear.\n"
+                        "3. Download PDF from sidebar.\n4. Go to next tab."
                     )
 
         # Tab 3: Generate Audio
@@ -1146,7 +1205,9 @@ with gr.Blocks(
                     )
                 with gr.Column(scale=4):
                     gr.Markdown(
-                        "### Instructions\n1. Finalize notes below.\n2. Click 'Generate Audio'.\n3. Regenerate if needed.\n4. Go to next tab."
+                        "### Instructions\n1. Finalize notes below.\n"
+                        "2. Click 'Generate Audio'.\n3. Regenerate if needed.\n"
+                        "4. Go to next tab."
                     )
 
         # Tab 4: Generate Video
@@ -1159,10 +1220,9 @@ with gr.Blocks(
                     )
                 with gr.Column(scale=4):
                     gr.Markdown(
-                        "### Instructions\n1. Click 'Create Video'.\n2. Video appears below.".replace(
-                            "\n", "\n"
-                        )  # Ensure newlines are rendered
-                    )
+                        "### Instructions\n1. Click 'Create Video'.\n"
+                        "2. Video appears below.".replace("\n", "\n")
+                    )  # Ensure newlines are rendered
                     video_output = gr.Video(label="Final Video", visible=False)
 
     # --- Status Textbox (Moved BEFORE editor_column) ---
@@ -1263,9 +1323,7 @@ with gr.Blocks(
         show_progress="full",
     ).then(
         fn=lambda s_data: (
-            gr.update(
-                value="Editor populated. Proceed to Step 2."
-            ),  # Status update first
+            gr.update(value="Editor populated. Moving to Step 2 (Build Slides)..."),
             # Then unpack the list/tuple of editor updates
             *[
                 upd
@@ -1274,7 +1332,10 @@ with gr.Blocks(
                 for upd in [
                     gr.update(
                         # Get cleaned first line for title, then use in f-string
-                        label=f"Slide {i + 1}: {(slide['content'].splitlines()[0] if slide['content'] else '').strip()[:30]}...",
+                        label=(
+                            f"Slide {i + 1}: "
+                            f"{(slide['content'].splitlines()[0] if slide['content'] else '').strip()[:30]}..."
+                        ),
                         visible=True,
                         open=(i == 0),
                     ),  # Accordion
@@ -1293,9 +1354,9 @@ with gr.Blocks(
             ],
         ),  # Correctly construct the output tuple
         inputs=[state_slides_data],
-        outputs=[status_textbox] + all_editor_components,  # Add status_textbox output
+        outputs=[status_textbox] + all_editor_components,  # Add status output
         show_progress="hidden",
-    ).then(lambda: gr.update(selected=1), outputs=tabs_widget)  # Switch to Tab 2
+    ).then(lambda: gr.update(selected=1), outputs=tabs_widget)  # Switch Tab 2
 
     # Step 2 Click Handler
     step2_inputs = (
@@ -1318,9 +1379,7 @@ with gr.Blocks(
         show_progress="full",
     ).then(
         fn=lambda image_paths: (
-            gr.update(
-                value="Slide images updated. Proceed to Step 3."
-            ),  # Status update first
+            gr.update(value="Slide images updated. Proceed to Step 3."),
             # Then unpack the list/tuple of image updates
             *[
                 gr.update(
@@ -1331,9 +1390,9 @@ with gr.Blocks(
             ],
         ),  # Correctly construct the output tuple
         inputs=[state_pdf_image_paths],
-        outputs=[status_textbox] + all_slide_images,  # Add status_textbox output
+        outputs=[status_textbox] + all_slide_images,  # Add status output
         show_progress="hidden",
-    ).then(lambda: gr.update(selected=2), outputs=tabs_widget)  # Switch to Tab 3
+    ).then(lambda: gr.update(selected=2), outputs=tabs_widget)  # Switch Tab 3
 
     # Step 3 Click Handler
     step3_inputs = (
@@ -1389,21 +1448,24 @@ if __name__ == "__main__":
     backslide_ok = check_and_install_npm_dependency(
         "bs",
         "backslide",
-        "Please install Node.js/npm (https://nodejs.org/) and then run 'npm install -g backslide'",
+        "Please install Node.js/npm (https://nodejs.org/) and then run "
+        "'npm install -g backslide'",
     )
     decktape_ok = check_and_install_npm_dependency(
         "decktape",
         "decktape",
-        "Please install Node.js/npm (https://nodejs.org/) and then run 'npm install -g decktape'",
+        "Please install Node.js/npm (https://nodejs.org/) and then run "
+        "'npm install -g decktape'",
     )
 
     if not backslide_ok:
         gr.Warning(
-            "Backslide (bs) command check/install failed. PDF generation might fail. Check logs."
+            "Backslide (bs) check/install failed. PDF generation might fail. "
+            "Check logs."
         )
     if not decktape_ok:
         gr.Warning(
-            "Decktape command check/install failed. PDF generation might fail. Check logs."
+            "Decktape check/install failed. PDF generation might fail. Check logs."
         )
     # --- End Dependency Check ---
 
